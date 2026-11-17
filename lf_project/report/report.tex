@@ -1,0 +1,371 @@
+\documentclass[11pt]{article}
+\usepackage[margin=2.2cm]{geometry}
+\usepackage[T1]{fontenc}
+\usepackage[scaled=0.92]{helvet}
+\renewcommand{\familydefault}{\sfdefault}
+\usepackage{booktabs,fancyvrb}
+\fvset{fontsize=\footnotesize}
+\renewcommand{\verbatim}{\Verbatim[fontsize=\scriptsize]}
+\renewcommand{\endverbatim}{\endVerbatim}
+\title{Formal Languages Project Report\\FIRST/FOLLOW, LL(1), SLR(1) and Syntax-Directed Definitions}
+\author{Laura Isabel Isaza Londo\~no \and Santiago Cardenas Angarita \and Santiago Meneses Carvajal}
+\date{}
+\begin{document}
+\maketitle
+
+\section{Book sections followed and data structures}
+All algorithms come from Aho et al., \emph{Compilers: Principles, Techniques, and Tools}, 2nd ed.
+\begin{center}
+\begin{tabular}{p{4.6cm}p{5.6cm}p{5cm}}
+\toprule
+Part & Book reference & File\\
+\midrule
+FIRST, FOLLOW & Section 4.4.2 (FIRST of strings too) & \texttt{grammar.py}\\
+LL(1) condition and table & Section 4.4.3, Algorithm 4.31 & \texttt{ll1.py}\\
+Table-driven predictive parser & Section 4.4.4, Algorithm 4.34 & \texttt{ll1.py}\\
+LR(0) items, CLOSURE, GOTO & Section 4.6.2 & \texttt{slr.py}\\
+SLR(1) ACTION/GOTO table & Section 4.6.4, Algorithm 4.46 & \texttt{slr.py}\\
+LR parsing algorithm & Section 4.6.3, Algorithm 4.44 & \texttt{slr.py}\\
+SDD, annotated trees & Sections 5.1.1, 5.1.2 & \texttt{sdd.py}, \texttt{sdd\_example.py}\\
+Dependency graph, order & Sections 5.2.1, 5.2.2 & \texttt{sdd.py}\\
+S- and L-attributed & Sections 5.2.3, 5.2.4 & Section 3.4 of this report\\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\paragraph{Data structures.}
+A grammar is a list of productions \texttt{(head, body)}, with the body a tuple of symbols
+(the empty tuple is $\varepsilon$). FIRST and FOLLOW are dictionaries from nonterminal to a Python set.
+The LL(1) table is a dictionary \texttt{(A, a) -> production number}; a second write with a different
+production is recorded as a conflict. An LR(0) item is a pair \texttt{(production, dot)} and a state is a
+frozen set of items. ACTION and GOTO are dictionaries indexed by \texttt{(state, symbol)}. The parse tree is made
+of \texttt{Node} objects (symbol, production, children, attributes). An SDD is data: a dictionary from each
+production to a list of \texttt{Rule} objects (defined attribute, used attributes, function).
+
+\section{Items 1 and 2: our own grammar}
+Grammar (nested lists):
+\begin{verbatim}
+S -> [L] a
+L -> SM
+M -> ,SM e
+\end{verbatim}
+It generates strings such as \texttt{a}, \texttt{[a]}, \texttt{[a,a]} and \texttt{[[a],a]}.
+It is both LL(1) and SLR(1), so the program shows the menu.
+
+\subsection{FIRST and FOLLOW (computed by the program)}
+\begin{verbatim}
+First(L) = {[, a}
+First(M) = {,, e}
+First(S) = {[, a}
+Follow(L) = {]}
+Follow(M) = {]}
+Follow(S) = {,, ], $}
+\end{verbatim}
+
+\subsection{LL(1) table}
+\begin{verbatim}
+LL(1) predictive parsing table:
+   ,         [         ]         a         $         
+L            L -> SM             L -> SM             
+M  M -> ,SM            M -> e                        
+S            S -> [L]            S -> a              
+\end{verbatim}
+
+No cell has two productions, so the grammar is LL(1) (Section 4.4.3).
+
+\subsection{LR(0) automaton and SLR(1) table}
+In the automaton the production $S'\to S$ is added by the program. Production numbers used in the table:
+0: $S\to[L]$, 1: $S\to a$, 2: $L\to SM$, 3: $M\to,SM$, 4: $M\to\varepsilon$.
+\begin{verbatim}
+LR(0) automaton (canonical collection):
+I0:
+    S -> .[L]
+    S -> .a
+    S' -> .S
+    --S--> I1
+    --[--> I2
+    --a--> I3
+I1:
+    S' -> S.
+I2:
+    S -> .[L]
+    S -> [.L]
+    S -> .a
+    L -> .SM
+    --L--> I4
+    --S--> I5
+    --[--> I2
+    --a--> I3
+I3:
+    S -> a.
+I4:
+    S -> [L.]
+    --]--> I6
+I5:
+    L -> S.M
+    M -> .,SM
+    M -> .
+    --M--> I7
+    --,--> I8
+I6:
+    S -> [L].
+I7:
+    L -> SM.
+I8:
+    S -> .[L]
+    S -> .a
+    M -> ,.SM
+    --S--> I9
+    --[--> I2
+    --a--> I3
+I9:
+    M -> .,SM
+    M -> ,S.M
+    M -> .
+    --M--> I10
+    --,--> I8
+I10:
+    M -> ,SM.
+\end{verbatim}
+\begin{verbatim}
+SLR(1) table:
+state  ,      [      ]      a      $      | L    M    S    
+0             s2            s3            |           1    
+1                                  acc    |                
+2             s2            s3            | 4         5    
+3      r1            r1            r1     |                
+4                    s6                   |                
+5      s8            r4                   |      7         
+6      r0            r0            r0     |                
+7                    r2                   |                
+8             s2            s3            |           9    
+9      s8            r4                   |      10        
+10                   r3                   |                
+\end{verbatim}
+
+The table has no conflicts, so the grammar is SLR(1).
+
+\subsection{One string parsed step by step: \texttt{[a,a]}}
+LL(1) parser (stack with its top on the left):
+\begin{verbatim}
+STACK                         INPUT               ACTION
+S$                            [a,a]$              S -> [L]
+[L]$                          [a,a]$              match [
+L]$                           a,a]$               L -> SM
+SM]$                          a,a]$               S -> a
+aM]$                          a,a]$               match a
+M]$                           ,a]$                M -> ,SM
+,SM]$                         ,a]$                match ,
+SM]$                          a]$                 S -> a
+aM]$                          a]$                 match a
+M]$                           ]$                  M -> e
+]$                            ]$                  match ]
+$                             $                   accept
+yes
+\end{verbatim}
+
+SLR(1) parser:
+\begin{verbatim}
+STACK                         INPUT               ACTION
+0                             [a,a]$              shift 2
+0 [ 2                         a,a]$               shift 3
+0 [ 2 a 3                     ,a]$                reduce S -> a
+0 [ 2 S 5                     ,a]$                shift 8
+0 [ 2 S 5 , 8                 a]$                 shift 3
+0 [ 2 S 5 , 8 a 3             ]$                  reduce S -> a
+0 [ 2 S 5 , 8 S 9             ]$                  reduce M -> e
+0 [ 2 S 5 , 8 S 9 M 10        ]$                  reduce M -> ,SM
+0 [ 2 S 5 M 7                 ]$                  reduce L -> SM
+0 [ 2 L 4                     ]$                  shift 6
+0 [ 2 L 4 ] 6                 $                   reduce S -> [L]
+0 S 1                         $                   accept
+yes
+\end{verbatim}
+
+\section{Item 3: SDD}
+\subsection{Grammar and attributes}
+\begin{verbatim}
+S -> L
+L -> DN
+N -> L e
+D -> 0 1 2 3 4 5 6 7 8 9
+\end{verbatim}
+It generates the non-empty strings of digits. It is LL(1) and SLR(1), so we can parse with either parser
+(the evaluator uses the LL(1) parser by default). Our SDD computes the alternating sum of the digits
+$d_1-d_2+d_3-\dots$ and the number of digits.
+\begin{center}
+\begin{tabular}{llllp{6.2cm}}
+\toprule
+Symbol & Attribute & Kind & Type & Meaning\\
+\midrule
+D & val & synthesized & int & value of the digit\\
+L, N & s & inherited & int ($\pm1$) & sign of the first digit of this subtree\\
+L, N & v & synthesized & int & alternating sum of the digits of the subtree\\
+L, N & len & synthesized & int & number of digits of the subtree\\
+S & v, len & synthesized & int & final results (main attribute: S.v)\\
+digit terminals & lexval & synthesized & char & the character itself (given)\\
+\bottomrule
+\end{tabular}
+\end{center}
+\subsection{Semantic rules}
+\begin{center}
+\begin{tabular}{ll}
+\toprule
+Production & Semantic rules\\
+\midrule
+$S\to L$ & $L.s=1$;\; $S.v=L.v$;\; $S.len=L.len$\\
+$L\to D\,N$ & $N.s=-L.s$;\; $L.v=L.s\cdot D.val+N.v$;\; $L.len=1+N.len$\\
+$N\to L$ & $L.s=N.s$;\; $N.v=L.v$;\; $N.len=L.len$\\
+$N\to\varepsilon$ & $N.v=0$;\; $N.len=0$\\
+$D\to d$ ($d=0,\dots,9$) & $D.val=\texttt{int}(d.lexval)$\\
+\bottomrule
+\end{tabular}
+\end{center}
+Each synthesized attribute of the head and each inherited attribute of a body nonterminal is defined exactly once
+per production, and $S$ has no inherited attributes (the program checks this with \texttt{check\_sdd}).
+
+\subsection{Step 3: example by hand, string \texttt{1234}}
+Annotated parse tree (one node per line; the index after the symbol is the node number; an $\varepsilon$ production has no children):
+\begin{verbatim}
+S_0   [S -> L]   {v=-2, len=4}
+  L_1   [L -> DN]   {s=1, v=-2, len=4}
+    D_2   [D -> 1]   {val=1}
+      1_3   {lexval='1'}
+    N_4   [N -> L]   {s=-1, v=-3, len=3}
+      L_5   [L -> DN]   {s=-1, v=-3, len=3}
+        D_6   [D -> 2]   {val=2}
+          2_7   {lexval='2'}
+        N_8   [N -> L]   {s=1, v=-1, len=2}
+          L_9   [L -> DN]   {s=1, v=-1, len=2}
+            D_10   [D -> 3]   {val=3}
+              3_11   {lexval='3'}
+            N_12   [N -> L]   {s=-1, v=-4, len=1}
+              L_13   [L -> DN]   {s=-1, v=-4, len=1}
+                D_14   [D -> 4]   {val=4}
+                  4_15   {lexval='4'}
+                N_16   [N -> e]   {s=1, v=0, len=0}
+
+\end{verbatim}
+
+Dependency graph: one edge ``used attribute $\to$ defined attribute'' for every rule instance:
+\begin{verbatim}
+  L_1.v -> S_0.v
+  L_1.len -> S_0.len
+  L_1.s -> N_4.s
+  L_1.s -> L_1.v
+  D_2.val -> L_1.v
+  N_4.v -> L_1.v
+  N_4.len -> L_1.len
+  1_3.lexval -> D_2.val
+  N_4.s -> L_5.s
+  L_5.v -> N_4.v
+  L_5.len -> N_4.len
+  L_5.s -> N_8.s
+  L_5.s -> L_5.v
+  D_6.val -> L_5.v
+  N_8.v -> L_5.v
+  N_8.len -> L_5.len
+  2_7.lexval -> D_6.val
+  N_8.s -> L_9.s
+  L_9.v -> N_8.v
+  L_9.len -> N_8.len
+  L_9.s -> N_12.s
+  L_9.s -> L_9.v
+  D_10.val -> L_9.v
+  N_12.v -> L_9.v
+  N_12.len -> L_9.len
+  3_11.lexval -> D_10.val
+  N_12.s -> L_13.s
+  L_13.v -> N_12.v
+  L_13.len -> N_12.len
+  L_13.s -> N_16.s
+  L_13.s -> L_13.v
+  D_14.val -> L_13.v
+  N_16.v -> L_13.v
+  N_16.len -> L_13.len
+  4_15.lexval -> D_14.val
+
+\end{verbatim}
+
+A valid evaluation order (topological order of the graph, produced by the program; the leaf attributes \texttt{lexval} are known from the start and are not listed):
+\begin{verbatim}
+  1. L_1.s = 1
+  2. N_16.v = 0
+  3. N_16.len = 0
+  4. N_4.s = -1
+  5. D_2.val = 1
+  6. D_6.val = 2
+  7. D_10.val = 3
+  8. D_14.val = 4
+  9. L_13.len = 1
+  10. L_5.s = -1
+  11. N_12.len = 1
+  12. N_8.s = 1
+  13. L_9.len = 2
+  14. L_9.s = 1
+  15. N_8.len = 2
+  16. N_12.s = -1
+  17. L_5.len = 3
+  18. L_13.s = -1
+  19. N_4.len = 3
+  20. N_16.s = 1
+  21. L_13.v = -4
+  22. L_1.len = 4
+  23. N_12.v = -4
+  24. S_0.len = 4
+  25. L_9.v = -1
+  26. N_8.v = -1
+  27. L_5.v = -3
+  28. N_4.v = -3
+  29. L_1.v = -2
+  30. S_0.v = -2
+S.v = -2
+\end{verbatim}
+
+Result: $S.v=1-2+3-4=-2$ and $S.len=4$.
+
+\subsection{Step 4: classification}
+The SDD is \textbf{L-attributed but not S-attributed}. It is not S-attributed because $L.s$ and $N.s$ are inherited.
+It is L-attributed (Section 5.2.4): each inherited attribute depends only on inherited attributes of the head or on attributes
+of symbols to its left in the body. $L.s$ in $S\to L$ is a constant; $N.s=-L.s$ in $L\to DN$ uses the head's $s$;
+$L.s=N.s$ in $N\to L$ uses the head's $s$. The attributes $D.val$ and $L.v$, $N.v$, $len$ are synthesized, so they have no restriction.
+Even so, the evaluator uses the general method (dependency graph and topological order).
+
+\subsection{Step 6: tests}
+\begin{center}
+\begin{tabular}{lll}
+\toprule
+String & Expected \texttt{S.v} & Case\\
+\midrule
+\texttt{7} & 7 & shortest string of the language\\
+\texttt{12} & $-1$ & two digits\\
+\texttt{1234} & $-2$ & the hand example\\
+\texttt{9876543210} & 5 & deep recursion (10 levels of $L$/$N$)\\
+\texttt{12a} & \texttt{no} & not in the language\\
+\bottomrule
+\end{tabular}
+\end{center}
+Output for \texttt{12a}:
+\begin{verbatim}
+no
+\end{verbatim}
+
+Circularity: in \texttt{sdd\_example.py} we temporarily changed the rule $N.s=-L.s$ of $L\to DN$ into $N.s=N.v$
+(\texttt{make\_sdd(circular=True)}). Then $N.s$ depends on $N.v$, which depends on $L.v$ of the child, which depends on $L.s=N.s$.
+For a string of one digit there is no cycle, for \texttt{12} there is:
+\begin{verbatim}
+The SDD is circular: these attributes cannot be ordered:
+  S_0.v, L_1.v, N_4.s, N_4.v, L_5.s, L_5.v
+\end{verbatim}
+
+\section{Problems found and how we solved them}
+\begin{itemize}
+\item \textbf{Epsilon productions in FIRST.} FIRST of a string stops at the first symbol that cannot derive $\varepsilon$ and only adds
+$\varepsilon$ if all symbols can. We wrote one function for strings and used it in FIRST, FOLLOW and the table.
+\item \textbf{Same production twice in one table cell.} When $\varepsilon\in$ FIRST$(\alpha)$ and a terminal is both in FIRST$(\alpha)$ and FOLLOW$(A)$, the same production is written twice in the same cell. That is not a conflict, so we only record a conflict when the production is different.
+\item \textbf{End marker.} The program appends \texttt{\$} itself; a string that contains \texttt{\$} is rejected so that the parser cannot accept before reading the whole input.
+\item \textbf{Parse tree for the evaluator.} Both parsers build the tree while parsing (LL(1): when a production is expanded; SLR(1): at each reduce). Nodes of $\varepsilon$ productions have no children.
+\item \textbf{Augmented grammar.} The production $S'\to S$ is added only inside the SLR(1) code, so the user's grammar is not changed; the accept action is the item $S'\to S\cdot$ on \texttt{\$}.
+\item \textbf{Circular SDD.} The topological sort stops with vertices that still have pending inputs; these are reported.
+\end{itemize}
+\end{document}
